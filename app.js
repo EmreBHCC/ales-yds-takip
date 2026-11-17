@@ -26,7 +26,7 @@
     return {
       v: 1,
       ayar: {
-        ydsHedef: 80, alesHedefNet: 40, alesHedefPuan: 70, haftalikSaat: 5, tema: 'oto', sonYedek: null,
+        ydsHedef: 80, alesHedefNet: 40, alesHedefPuan: 70, haftalikSaat: 5, tema: 'oto', hareket: 'oto', sonYedek: null,
         tarihler: L.takvimiBirlestir([])
       },
       calisma: [], deneme: [], hata: [], kelime: [], konu: {}, alesSonuc: [], silinen: {}, guncel: 0
@@ -172,17 +172,147 @@
     SEKMELER.forEach(function (s) {
       nav.appendChild(h('a', { href: '#' + s[0], 'aria-current': s[0] === k ? 'page' : false }, s[1]));
     });
+    tema(); hareketUygula();
+    var oy = oyunDegisim();
     var ana = document.getElementById('ana'); ana.textContent = '';
     ana.appendChild(EKRANLAR[k]());
-    tema();
+    oyuncuCiz(oy);
+    oyunKaydet(oy);
     uyar();
   }
-  function yenile() { var y = window.scrollY; ciz(); window.scrollTo(0, y); }
   function tema() {
     var t = durum.ayar.tema;
     if (t === 'acik' || t === 'koyu') document.documentElement.setAttribute('data-tema', t);
     else document.documentElement.removeAttribute('data-tema');
   }
+
+  /* ---------- Oyun katmanı: hareket modu, bildirim, konfeti, oyuncu şeridi ----------
+     XP/seviye/rozet kayıtlardan türetilir (logic.js). Burada yalnız "ne değişti" için tarayıcıya özel,
+     eşitlenmeyen küçük bir hafıza tutulur: son seviye, açılmış rozetler, bugün işaretlenen plan maddeleri. */
+  var OYUN_ANAHTAR = 'ales-yds-takip:oyun';
+  var KONU_TOPLAM = KONULAR.reduce(function (a, g) { return a + g.konular.length; }, 0);
+  var oyunHafiza = null;
+  try { oyunHafiza = JSON.parse(localStorage.getItem(OYUN_ANAHTAR)); } catch (e) { oyunHafiza = null; }
+  if (!oyunHafiza || typeof oyunHafiza !== 'object') oyunHafiza = null;
+  var planBiten = null;      // Bugün ekranı çizilince {tarih, liste}
+  var yeniRozetler = {};     // bu çizimde yeni açılanlar (raf parlaması için)
+  var azaltMq = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+
+  function hareketUygula() {
+    var a = durum.ayar.hareket, m;
+    if (a === 'kapali') m = 'yok';
+    else if (a === 'acik') m = 'tam';
+    else m = azaltMq && azaltMq.matches ? 'hafif' : 'tam';
+    document.documentElement.setAttribute('data-hareket', m);
+  }
+  function hareket() { return document.documentElement.getAttribute('data-hareket') || 'hafif'; }
+  if (azaltMq && azaltMq.addEventListener) azaltMq.addEventListener('change', hareketUygula);
+
+  /* 12×12 piksel fidan, 4 aşama; seviyeyle büyür. Harf → renk. */
+  var FIDAN_RENK = { g: '#4fae7f', G: '#2f7d5c', l: '#8fdc9c', b: '#8a5a34', B: '#6b4226', s: '#4b3a2a', S: '#3a2c20', y: '#ffd24a', r: '#f06a5a' };
+  var FIDAN = [
+    ['............', '............', '............', '............', '............', '....gg.gg...', '.....gGg....', '......G.....', '......G.....', '..ssssssss..', '.sssSssssss.', '............'],
+    ['............', '............', '..gg....gg..', '.gggg..gggg.', '.gGggg.ggGg.', '..gggGGggg..', '......G.....', '......G.....', '......G.....', '..ssssssss..', '.ssSsssssss.', '............'],
+    ['............', '....gggg....', '...ggllgg...', '..gglggggg..', '..ggggGggg..', '...gGggGg...', '.....bb.....', '.....bb.....', '.....bb.....', '..ssssssss..', '.ssSsssssss.', '............'],
+    ['...gggggg...', '..gglgggGg..', '.gggygggrggg', '.ggGggggggGg', '..gggGgggg..', '...ggggGg...', '.....bb.....', '.....bB.....', '.....bb.....', '..ssssssss..', '.ssSsssssss.', '............']
+  ];
+  function fidanSvg(asama) {
+    var s = svgEl('svg', { viewBox: '0 0 12 12', 'shape-rendering': 'crispEdges', 'aria-hidden': 'true', focusable: 'false' });
+    FIDAN[asama].forEach(function (satir, y) {
+      for (var x = 0; x < satir.length; x++) {
+        var r = FIDAN_RENK[satir[x]];
+        if (r) s.appendChild(svgEl('rect', { x: x, y: y, width: 1, height: 1, fill: r }));
+      }
+    });
+    return s;
+  }
+
+  function bildir(baslik, metin, simge) {
+    var kutu = document.getElementById('bildirim'); if (!kutu) return;
+    while (kutu.children.length >= 3) kutu.removeChild(kutu.firstChild);
+    var e = h('div', { 'class': 'bildirim' }, h('span', { 'class': 'simge', 'aria-hidden': 'true' }, simge || '★'),
+      h('div', {}, h('b', {}, baslik), metin));
+    kutu.appendChild(e);
+    setTimeout(function () { if (e.parentNode) e.parentNode.removeChild(e); }, 4500);
+  }
+  function konfeti() {
+    if (hareket() !== 'tam') return;
+    var f = document.getElementById('fidan'); if (!f) return;
+    var r = f.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    var renkler = ['#ffd24a', '#5fd3a8', '#f06a5a', '#8fb4ea', '#8fdc9c'];
+    for (var i = 0; i < 28; i++) {
+      var a = Math.random() * Math.PI * 2, d = 60 + Math.random() * 120;
+      var p = h('i', { 'class': 'konfeti', 'aria-hidden': 'true' });
+      p.style.left = cx + 'px'; p.style.top = cy + 'px'; p.style.background = renkler[i % renkler.length];
+      p.style.setProperty('--x', Math.round(Math.cos(a) * d) + 'px');
+      p.style.setProperty('--y', Math.round(Math.sin(a) * d + 40) + 'px');
+      p.style.setProperty('--r', Math.round(Math.random() * 540 - 270) + 'deg');
+      p.style.setProperty('--sure', (0.8 + Math.random() * 0.5).toFixed(2) + 's');
+      document.body.appendChild(p);
+      (function (q) { setTimeout(function () { if (q.parentNode) q.parentNode.removeChild(q); }, 1500); })(p);
+    }
+  }
+  function bocekleriKur() {
+    var kap = document.getElementById('bocekler'); if (!kap) return;
+    for (var i = 0; i < 14; i++) {
+      var b = document.createElement('i');
+      b.style.left = Math.round(Math.random() * 100) + '%'; b.style.top = Math.round(25 + Math.random() * 70) + '%';
+      b.style.setProperty('--s', (7 + Math.random() * 7).toFixed(1) + 's');
+      b.style.setProperty('--g', (-Math.random() * 10).toFixed(1) + 's');
+      b.style.setProperty('--dx', Math.round(Math.random() * 60 - 30) + 'px');
+      kap.appendChild(b);
+    }
+  }
+
+  /* Bu çizimde ne değişti? Kaydetmez; oyunKaydet ekran çizildikten sonra yazar. */
+  function oyunDegisim() {
+    var o = L.oyuncu(durum, KONU_TOPLAM);
+    var acik = o.rozetler.filter(function (r) { return r.acik; }).map(function (r) { return r.id; });
+    var ev = { o: o, seviyeAtladi: false, yeni: [], onceki: oyunHafiza ? oyunHafiza.yuzde : null, oncekiSv: oyunHafiza ? oyunHafiza.sv : null, acik: acik };
+    yeniRozetler = {};
+    if (oyunHafiza) {
+      if (o.seviye > oyunHafiza.sv) ev.seviyeAtladi = true;
+      var gorulen = oyunHafiza.rozet || [];
+      acik.forEach(function (id) { if (gorulen.indexOf(id) < 0) { ev.yeni.push(id); yeniRozetler[id] = true; } });
+      ev.acik = gorulen.concat(ev.yeni);
+    } // ilk açılış: mevcut veri sessizce "görüldü" sayılır, geriye dönük bildirim yağmaz
+    return ev;
+  }
+  function oyunKaydet(ev) {
+    var plan = planBiten || (oyunHafiza && oyunHafiza.plan) || null;
+    oyunHafiza = { sv: ev.o.seviye, yuzde: ev.o.yuzde, rozet: ev.acik, plan: plan };
+    try { localStorage.setItem(OYUN_ANAHTAR, JSON.stringify(oyunHafiza)); } catch (e) { }
+  }
+  function oyuncuCiz(ev) {
+    var o = ev.o, bg = bugun();
+    var f = document.getElementById('fidan'); f.textContent = ''; f.appendChild(fidanSvg(o.asama));
+    var seriN = L.seri(durum.calisma, bg);
+    // Çubuk, aynı seviyedeyken eski değerden yeni değere dolar; seviye atlayınca 0'dan başlar.
+    var baslangic = ev.onceki != null && ev.oncekiSv === o.seviye ? ev.onceki : (ev.seviyeAtladi ? 0 : o.yuzde);
+    var dolgu = h('i', { style: 'width:' + baslangic + '%' });
+    var cubuk = h('div', { 'class': 'cubuk xp', role: 'progressbar', 'aria-valuenow': Math.round(o.yuzde), 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': 'Seviye ilerlemesi' }, dolgu);
+    if (baslangic !== o.yuzde) setTimeout(function () { dolgu.style.width = o.yuzde + '%'; }, 40);
+    var ic = document.getElementById('oyuncu'); ic.textContent = '';
+    ic.appendChild(h('div', { 'class': 'kapak-ust' },
+      h('h1', {}, 'ALES · YDS ', h('span', {}, 'takip')),
+      h('span', { 'class': 'sv' }, 'Sv ' + o.seviye + ' · ' + o.unvan),
+      h('span', { 'class': 'seri-etiket', title: 'Üst üste çalışılan gün' }, 'Seri ', h('b', {}, String(seriN)), ' gün')));
+    ic.appendChild(cubuk);
+    ic.appendChild(h('div', { 'class': 'xp-yazi' }, h('span', {}, o.seviyeXp + ' / ' + o.seviyeGerek + ' XP'), h('span', {}, 'Sv ' + (o.seviye + 1) + ' için ' + (o.seviyeGerek - o.seviyeXp) + ' XP')));
+    if (ev.seviyeAtladi) { bildir('Seviye atladın!', 'Sv ' + o.seviye + ' · ' + o.unvan, '▲'); konfeti(); }
+    ev.yeni.forEach(function (id) {
+      var r = o.rozetler.filter(function (x) { return x.id === id; })[0];
+      if (r) { bildir('Rozet açıldı: ' + r.ad, r.nasil, r.simge); if (!ev.seviyeAtladi) konfeti(); }
+    });
+  }
+  var SELAMLAR = ['Bugün tek madde yeter. İlki zor olan.', 'Dün yaptığın bugünün XP’si değil; bugün yap.', 'Kelime kartları 5 dakika sürer, başlat.', 'Hata defteri en ucuz XP.', 'Seri bir günlük çalışmayla sürer.', 'Yavaş da olsa dolan çubuk dolar.'];
+  var selamSira = 0;
+  document.getElementById('fidan').addEventListener('click', function () {
+    var f = this; f.classList.remove('salla'); void f.offsetWidth; f.classList.add('salla');
+    bildir('Fidanın', SELAMLAR[selamSira++ % SELAMLAR.length], '♥');
+  });
+  bocekleriKur();
+  function yenile() { var y = window.scrollY; ciz(); window.scrollTo(0, y); }
 
   /* ---------- Bugün: teşvik katmanı ---------- */
   var PLAN_SEKME = { kelime: '#kelime', calisma: '#calis', hata: '#hata', deneme: '#deneme' };
@@ -196,10 +326,17 @@
       h('div', { 'class': 'cubuk', style: 'margin:.5rem 0', role: 'progressbar', 'aria-valuenow': biten, 'aria-valuemin': 0, 'aria-valuemax': plan.length, 'aria-label': 'Günün planı' },
         h('i', { style: 'width:' + (plan.length ? biten / plan.length * 100 : 0) + '%' })));
     if (ara && !tamam && !biten) kart.appendChild(h('p', { 'class': 'soluk' }, ara.gun + ' gündür ara var, sorun değil. Bugün tek bir maddeyle başla; ilki yeter.'));
+    // Bu çizimde yeni tamamlanan maddeler (tik animasyonu için). İlk açılışta hepsi "görüldü" sayılır.
+    var gorulen = oyunHafiza ? (oyunHafiza.plan && oyunHafiza.plan.tarih === bg ? oyunHafiza.plan.liste : []) : null;
+    var biten_ = plan.filter(function (p) { return p.bitti; }).map(function (p) { return p.anahtar; });
+    planBiten = { tarih: bg, liste: (gorulen || []).concat(biten_.filter(function (a) { return (gorulen || []).indexOf(a) < 0; })) };
+    var ODUL = { calisma: function (p) { return '+' + p.dk + ' XP'; }, hata: function () { return '+' + L.XP_KURAL.hataCozuldu + ' XP'; }, deneme: function () { return '+' + L.XP_KURAL.deneme + ' XP'; } };
     plan.forEach(function (p) {
+      var yeni = p.bitti && gorulen && gorulen.indexOf(p.anahtar) < 0;
       kart.appendChild(h('a', { href: PLAN_SEKME[p.anahtar], 'class': 'plan-satir' + (p.bitti ? ' bitti' : '') },
-        h('span', { 'class': 'tik', 'aria-hidden': 'true' }, p.bitti ? '✓' : ''),
+        h('span', { 'class': 'tik' + (yeni ? ' yeni' : ''), 'aria-hidden': 'true' }, p.bitti ? '✓' : ''),
         h('span', { 'class': 'ad' }, h('strong', {}, p.baslik), h('span', { 'class': 'soluk' }, ' · ' + p.ayrinti)),
+        ODUL[p.anahtar] ? h('span', { 'class': 'odul', title: 'Kazanacağın XP' }, ODUL[p.anahtar](p)) : null,
         h('span', { 'class': 'sr-only' }, p.bitti ? 'tamamlandı' : 'yapılacak')));
     });
     if (tamam) kart.appendChild(h('p', { 'class': 'tamam' }, 'Bugünlük tamam. Dinlen; yarın aynı yerden devam.'));
@@ -250,11 +387,13 @@
     // Sınav geri sayımı
     var tarihler = durum.ayar.tarihler.slice().sort(function (a, b) { return a.tarih < b.tarih ? -1 : 1; });
     var gelecek = tarihler.filter(function (t) { return L.geriSayim(t.tarih, bg) >= 0; });
-    var sayacKartlari = gelecek.slice(0, 3).map(function (t) {
+    var sayacKartlari = gelecek.slice(0, 3).map(function (t, i) {
       var g = L.geriSayim(t.tarih, bg);
-      return h('div', { 'class': 'kart' },
-        h('div', { 'class': 'etiket' }, t.ad + ' · ' + tarihTR(t.tarih)),
+      return h('div', { 'class': 'kart boss' },
+        h('div', { 'class': 'etiket' }, (i === 0 ? 'Boss · ' : 'Sıradaki · ') + t.ad + ' · ' + tarihTR(t.tarih)),
         h('div', { 'class': 'sayac' }, String(g), ' ', h('small', {}, g === 0 ? 'bugün' : 'gün kaldı')),
+        h('div', { 'class': 'cubuk hp', role: 'img', 'aria-label': 'Sınava kalan süre, 150 günlük ölçekte', title: '150 günlük ölçek', style: 'margin:.5rem 0' },
+          h('i', { style: 'width:' + Math.max(2, Math.min(100, g / 150 * 100)) + '%' })),
         !t.dogrulandi && h('div', { 'class': 'soluk' }, 'Tarih taslak: ÖSYM’den doğrula'));
     });
     if (!sayacKartlari.length) sayacKartlari = [h('div', { 'class': 'kart' }, h('div', { 'class': 'etiket' }, 'Sınav tarihi yok'), h('a', { href: '#ayar' }, 'Ayarlar’dan ekle'))];
@@ -305,6 +444,17 @@
     if (satirlar.length) son.appendChild(h('div', { 'class': 'kaydir' }, h('table', {}, h('tbody', {}, satirlar))));
     else son.appendChild(h('div', { 'class': 'bos' }, 'Henüz deneme yok. İlk deneme baz çizgin olur: ', h('a', { href: '#deneme' }, 'ekle')));
     kok.appendChild(son);
+
+    // Rozet rafı
+    var oy = L.oyuncu(durum, KONU_TOPLAM), acilan = oy.rozetler.filter(function (r) { return r.acik; }).length;
+    kok.appendChild(h('div', { 'class': 'kart', style: 'margin-top:1rem' },
+      h('div', { 'class': 'satir' }, h('h3', { style: 'margin:0' }, 'Rozetler'), h('span', { 'class': 'bosluk' }), h('span', { 'class': 'soluk' }, acilan + ' / ' + oy.rozetler.length)),
+      h('div', { 'class': 'raf', style: 'margin-top:.75rem' }, oy.rozetler.map(function (r) {
+        return h('div', { 'class': 'raf-rozet ' + (r.acik ? 'acik' : 'kilit') + (yeniRozetler[r.id] ? ' yeni' : '') },
+          h('span', { 'class': 'simge', 'aria-hidden': 'true' }, r.acik ? r.simge : '?'),
+          h('div', {}, h('b', {}, r.ad), h('small', {}, r.nasil), h('span', { 'class': 'sr-only' }, r.acik ? 'açıldı' : 'kilitli')));
+      })),
+      h('p', { 'class': 'soluk', style: 'margin:.75rem 0 0' }, 'XP: çalışma dakikası, deneme (+' + L.XP_KURAL.deneme + '), çözülen hata (+' + L.XP_KURAL.hataCozuldu + '), kart kutusu başına +' + L.XP_KURAL.kartKutu + ', konular. Hepsi kayıtlarından hesaplanır; sildiğin kayıt XP’yi de siler.')));
 
     // Yedek hatırlatması
     var veriVar = durum.calisma.length + durum.deneme.length + durum.hata.length + durum.kelime.length > 0;
@@ -667,17 +817,19 @@
     var ales = h('input', { type: 'number', min: '1', max: '50', step: '1', value: a.alesHedefNet });
     var alesP = h('input', { type: 'number', min: '1', max: '100', step: '1', value: a.alesHedefPuan });
     var saat = h('input', { type: 'number', min: '1', max: '80', step: '0.5', value: a.haftalikSaat });
-    var temaSec = h('select', {}, secenekler({ oto: 'Cihaza göre', acik: 'Açık', koyu: 'Koyu' }, a.tema));
+    var temaSec = h('select', {}, secenekler({ oto: 'Cihaza göre', acik: 'Gündüz ormanı (açık)', koyu: 'Orman gecesi (koyu)' }, a.tema));
+    var hareketSec = h('select', {}, secenekler({ oto: 'Cihaza göre', acik: 'Hep açık (animasyonlu)', kapali: 'Kapalı' }, a.hareket));
     var hata = h('p', { 'class': 'hata-metni', role: 'alert' });
     kok.appendChild(h('form', { 'class': 'kart', novalidate: true, onsubmit: function (e) {
       e.preventDefault();
       var y = sayi(yds.value), n = sayi(ales.value), s = sayi(saat.value), ap = sayi(alesP.value);
       if (!(y >= 1 && y <= 100) || !(n >= 1 && n <= 50) || !(s >= 1 && s <= 80) || !(ap >= 1 && ap <= 100)) { hata.textContent = 'Değerler aralık dışı: YDS 1–100, ALES net 1–50, ALES puan 1–100, saat 1–80.'; return; }
-      a.ydsHedef = y; a.alesHedefNet = n; a.alesHedefPuan = ap; a.haftalikSaat = s; a.tema = temaSec.value;
+      a.ydsHedef = y; a.alesHedefNet = n; a.alesHedefPuan = ap; a.haftalikSaat = s; a.tema = temaSec.value; a.hareket = hareketSec.value;
       kaydet(); yenile();
     } }, h('h3', {}, 'Hedefler'),
-      h('div', { 'class': 'form' }, alan('YDS hedef puan', yds), alan('ALES Sayısal hedef net', ales), alan('ALES hedef puan', alesP), alan('Haftalık çalışma (saat)', saat), alan('Tema', temaSec),
+      h('div', { 'class': 'form' }, alan('YDS hedef puan', yds), alan('ALES Sayısal hedef net', ales), alan('ALES hedef puan', alesP), alan('Haftalık çalışma (saat)', saat), alan('Tema', temaSec), alan('Hareket', hareketSec),
         h('div', {}, h('button', { 'class': 'ana', type: 'submit' }, 'Kaydet'))), hata,
+      h('p', { 'class': 'soluk' }, 'Hareket “Cihaza göre” iken cihazında “animasyonları azalt” açıksa kayma ve sıçrama durur, yalnız parıltı kalır.'),
       h('p', { 'class': 'soluk' }, 'ALES çalışması net üzerinden izlenir. Hedef puan, gerçek ALES sonuçlarını girince “şu puan için şu net” tahminine çevrilir (Deneme sekmesi).')));
 
     // Tarihler

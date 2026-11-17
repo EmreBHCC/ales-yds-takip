@@ -4,21 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
+<meta name="darkreader-lock">
 <title>ALES · YDS Takip</title>
 <meta name="description" content="ALES ve YDS hazırlığını takip et: çalışma günlüğü, deneme grafiği, hata defteri, kelime kartları. Veri tarayıcında durur; istersen Google ile cihazların arasında eşitlenir.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a6f5e'/%3E%3Cpath d='M8 17l5 5 11-12' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231d7a55'/%3E%3Cpath d='M8 17l5 5 11-12' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="ust">
-  <div class="ust-ic">
-    <h1>ALES · YDS <span>takip</span></h1>
-    <nav id="nav" aria-label="Bölümler"></nav>
+<div class="bocekler" id="bocekler" aria-hidden="true"></div>
+<header class="kapak">
+  <button type="button" class="fidan" id="fidan" aria-label="Fidanın: seviyeyle büyür. Dokununca selam verir"></button>
+  <div class="kapak-ic" id="oyuncu">
+    <div class="kapak-ust">
+      <h1>ALES · YDS <span>takip</span></h1>
+    </div>
   </div>
 </header>
+<div class="ust"><div class="ust-ic"><nav id="nav" aria-label="Bölümler"></nav></div></div>
 <div id="uyari" class="uyari" hidden></div>
 <main id="ana" tabindex="-1"></main>
 <footer class="alt">Veri bu tarayıcıda durur. Telefon + bilgisayar için Ayarlar’da Google senkronu; ayrıca yedek alabilirsin.</footer>
+<div id="bildirim" role="status" aria-live="polite"></div>
 <script src="logic.js"></script>
 <script src="firebase-config.js"></script>
 <script src="sync.js"></script>
