@@ -13,7 +13,8 @@ ALES ve YDS/YÖKDİL hazırlığını izlemek için tek sayfalık web uygulamas�
 - **Hata defteri:** konu, neden, not, çözüldü işareti; nedene göre dağılım
 - **Kelime kartları:** aralıklı tekrar (1-3-7-16-35 gün), toplu ekleme (`kelime - karşılık`)
 - **Konular:** ALES ve YDS konu listesi, üç durumlu ilerleme
-- **Ayarlar:** hedefler, sınav tarihleri (başvuru ve sonuç dahil), açık/koyu tema, Google senkronu, JSON yedek
+- **Oyun teması (RPG):** XP, seviye, ünvan, rozet rafı, 4 aşamalı piksel fidan (seviyeyle büyür), sınav "boss" kartı, görev defteri. Hepsi kayıtlardan türetilir (saklanan XP yok; sildiğin kayıt XP'yi de siler). Seviye/rozet açılınca bildirim + konfeti; ateş böceği arka planı. Hareket: Ayarlar'da cihaza göre / hep açık / kapalı (cihazda "animasyonları azalt" açıksa kayma durur, parıltı kalır). Piksel font Pixelify Sans (OFL), `fonts/` altında kendi sunucumuzdan.
+- **Ayarlar:** hedefler, sınav tarihleri (başvuru ve sonuç dahil), gündüz/gece tema, hareket, Google senkronu, JSON yedek
 
 ## Sınav tarihleri (2027)
 
@@ -52,7 +53,7 @@ Senkron kapalıyken kayıtlar tarayıcıya özeldir. Ayarlar → **Yedeği indir
 `index.html`, `style.css`, `app.js` (arayüz), `logic.js` (saf mantık), `sync.js` + `firebase-config.js` (senkron).
 
 ```
-node --test test/logic.test.js test/v2.test.js   # birim testleri
+node --test test/logic.test.js test/v2.test.js test/rpg.test.js   # birim testleri
 node test/ui-smoke.mjs                           # gerçek Chrome'da uçtan uca duman testi (Chrome yolu: CHROME)
 ```
 

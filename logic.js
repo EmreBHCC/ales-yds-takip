@@ -317,7 +317,72 @@
     return sonuc;
   }
 
+  /* ---------- Oyunlaştırma: kayıtlardan türetilir, ayrıca saklanan bir sayı yok ---------- */
+  var XP_KURAL = { calismaDk: 1, deneme: 40, hataCozuldu: 8, kartKutu: 3, konuCalistim: 6, konuTamam: 15 };
+  var UNVANLAR = [[1, 'Çaylak'], [3, 'Çırak'], [5, 'Gezgin'], [8, 'Kâşif'], [12, 'Usta'], [17, 'Büyücü'], [23, 'Efsane']];
+
+  function xpHesapla(d) {
+    var k = XP_KURAL, xp = 0;
+    d.calisma.forEach(function (c) { xp += (c.dk > 0 ? c.dk : 0) * k.calismaDk; });
+    xp += d.deneme.length * k.deneme;
+    d.hata.forEach(function (x) { if (x.cozuldu) xp += k.hataCozuldu; });
+    d.kelime.forEach(function (c) { xp += (c.kutu > 0 ? c.kutu : 0) * k.kartKutu; });
+    Object.keys(d.konu || {}).forEach(function (a) { xp += d.konu[a] === 2 ? k.konuTamam : d.konu[a] === 1 ? k.konuCalistim : 0; });
+    return xp;
+  }
+  /* Seviye n, 50·(n−1)² XP'de başlar: 1→2: 50, 2→3: 150, 3→4: 250 ... */
+  function seviyeEsik(n) { return 50 * (n - 1) * (n - 1); }
+  function unvan(sv) { var u = UNVANLAR[0][1]; UNVANLAR.forEach(function (x) { if (sv >= x[0]) u = x[1]; }); return u; }
+  function fidanAsama(sv) { return sv < 3 ? 0 : sv < 6 ? 1 : sv < 10 ? 2 : 3; }
+
+  function enUzunSeri(calisma) {
+    var gunler = {}, liste = [];
+    calisma.forEach(function (c) { if (c.dk > 0 && !gunler[c.tarih]) { gunler[c.tarih] = true; liste.push(c.tarih); } });
+    liste.sort();
+    var en = 0, n = 0, onceki = null;
+    liste.forEach(function (t) {
+      n = onceki && gunFarki(onceki, t) === 1 ? n + 1 : 1;
+      if (n > en) en = n;
+      onceki = t;
+    });
+    return en;
+  }
+
+  /* Rozet tanımları: ad, nasıl açılır, simge, koşul. Koşullar yalnız kayıtlara bakar. */
+  var ROZETLER = [
+    { id: 'ilk-adim', ad: 'İlk adım', nasil: 'İlk çalışma kaydını gir', simge: '▲', kosul: function (d) { return d.calisma.some(function (c) { return c.dk > 0; }); } },
+    { id: 'seri-3', ad: 'Isınma', nasil: '3 gün üst üste çalış', simge: '♦', kosul: function (d) { return enUzunSeri(d.calisma) >= 3; } },
+    { id: 'seri-7', ad: 'Bir hafta', nasil: '7 gün üst üste çalış', simge: '★', kosul: function (d) { return enUzunSeri(d.calisma) >= 7; } },
+    { id: 'seri-30', ad: 'Demirci', nasil: '30 gün üst üste çalış', simge: '✦', kosul: function (d) { return enUzunSeri(d.calisma) >= 30; } },
+    { id: 'saat-10', ad: 'On saat', nasil: 'Toplam 10 saat çalış', simge: '●', kosul: function (d) { return dkTumu(d) >= 600; } },
+    { id: 'saat-50', ad: 'Elli saat', nasil: 'Toplam 50 saat çalış', simge: '◆', kosul: function (d) { return dkTumu(d) >= 3000; } },
+    { id: 'ilk-deneme', ad: 'Sınav provası', nasil: 'İlk denemeni gir', simge: '✚', kosul: function (d) { return d.deneme.length >= 1; } },
+    { id: 'deneme-5', ad: 'Savaş tecrübesi', nasil: '5 deneme gir', simge: '⚔', kosul: function (d) { return d.deneme.length >= 5; } },
+    { id: 'kelime-50', ad: 'Sözlük kurdu', nasil: '50 kelime kartı ekle', simge: '✎', kosul: function (d) { return d.kelime.length >= 50; } },
+    { id: 'kutu-4', ad: 'Hafızada kalıcı', nasil: '10 kartı 5. kutuya çıkar', simge: '♥', kosul: function (d) { return d.kelime.filter(function (c) { return c.kutu >= 4; }).length >= 10; } },
+    { id: 'hata-10', ad: 'Hata avcısı', nasil: '10 hatayı çözüldü yap', simge: '⚑', kosul: function (d) { return d.hata.filter(function (x) { return x.cozuldu; }).length >= 10; } },
+    { id: 'konu-yari', ad: 'Yolun yarısı', nasil: 'Konuların yarısını bitir', simge: '◐', kosul: function (d, konuToplam) {
+      if (!konuToplam) return false;
+      var bitti = 0; Object.keys(d.konu || {}).forEach(function (a) { bitti += (d.konu[a] || 0) / 2; });
+      return bitti / konuToplam >= 0.5;
+    } }
+  ];
+  function dkTumu(d) { return d.calisma.reduce(function (a, c) { return a + (c.dk > 0 ? c.dk : 0); }, 0); }
+
+  /* konuToplam: uygulamadaki toplam konu sayısı (liste app.js'te). */
+  function oyuncu(d, konuToplam) {
+    var xp = xpHesapla(d);
+    var sv = Math.floor(Math.sqrt(xp / 50)) + 1;
+    var bas = seviyeEsik(sv), son = seviyeEsik(sv + 1);
+    return {
+      xp: xp, seviye: sv, unvan: unvan(sv), asama: fidanAsama(sv),
+      seviyeXp: xp - bas, seviyeGerek: son - bas, yuzde: (xp - bas) / (son - bas) * 100,
+      rozetler: ROZETLER.map(function (r) { return { id: r.id, ad: r.ad, nasil: r.nasil, simge: r.simge, acik: !!r.kosul(d, konuToplam) }; })
+    };
+  }
+
   var api = {
+    XP_KURAL: XP_KURAL, xpHesapla: xpHesapla, seviyeEsik: seviyeEsik, enUzunSeri: enUzunSeri, oyuncu: oyuncu,
     KUTU_GUN: KUTU_GUN, bugun: bugun, gunEkle: gunEkle, gunFarki: gunFarki, haftaBasi: haftaBasi,
     ydsPuan: ydsPuan, ydsHarf: ydsHarf, alesNet: alesNet, denemeDeger: denemeDeger, dogrula: dogrula,
     haftalik: haftalik, seri: seri, kartCevapla: kartCevapla, bugunTekrar: bugunTekrar,
