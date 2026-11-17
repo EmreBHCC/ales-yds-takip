@@ -183,7 +183,7 @@ try {
   await kos(`tikla('Sil');`);
   kontrol('Silinen kayıt iz bırakır (senkronda geri gelmesin)', await kos(`const s=__takip.durum(); return s.calisma.length===0 && Object.keys(s.silinen).length===1`));
   await git('#ayar');
-  kontrol('Ayarlar: başvuru penceresi ve senkron kartı (yapılandırma yok → kapalı)', await kos(`const t=q('main').textContent; return t.includes('Başvuru 3 Şub 2027') && !!q('#sync-kart') && q('#sync-kart').textContent.includes('Kapalı')`));
+  kontrol('Ayarlar: başvuru penceresi ve senkron kartı (config yoksa "Kapalı", varsa giriş düğmesi)', await kos(`const t=q('main').textContent; const s=q('#sync-kart'); return t.includes('Başvuru 3 Şub 2027') && !!s && (s.textContent.includes('Kapalı') || (s.textContent.includes('Giriş yapılmadı') && !!qa('#sync-kart button').find(b=>b.textContent.trim()==='Google ile giriş yap')))`));
 
   // Ekran görüntüleri (isteğe bağlı): örnek veriyle
   if (cikti) {
