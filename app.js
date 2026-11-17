@@ -26,15 +26,21 @@
     return {
       v: 1,
       ayar: {
-        ydsHedef: 80, alesHedefNet: 40, haftalikSaat: 5, tema: 'oto', sonYedek: null,
-        tarihler: [
-          { id: 'd1', ad: 'YÖKDİL/1', tarih: '2027-02-28', dogrulandi: false },
-          { id: 'd2', ad: 'YDS/1', tarih: '2027-03-28', dogrulandi: false },
-          { id: 'd3', ad: 'ALES/1', tarih: '2027-04-18', dogrulandi: false }
-        ]
+        ydsHedef: 80, alesHedefNet: 40, alesHedefPuan: 70, haftalikSaat: 5, tema: 'oto', sonYedek: null,
+        tarihler: L.takvimiBirlestir([])
       },
-      calisma: [], deneme: [], hata: [], kelime: [], konu: {}
+      calisma: [], deneme: [], hata: [], kelime: [], konu: {}, alesSonuc: [], silinen: {}, guncel: 0
     };
+  }
+  /* Eski/eksik alanları varsayılanla doldurur; sınav takvimini eksik satırlarla tamamlar. */
+  function tamamla(o) {
+    var v = varsayilan();
+    Object.keys(v.ayar).forEach(function (k) { if (o.ayar[k] === undefined) o.ayar[k] = v.ayar[k]; });
+    o.ayar.tarihler = L.takvimiBirlestir(o.ayar.tarihler);
+    if (!Array.isArray(o.alesSonuc)) o.alesSonuc = [];
+    if (!o.silinen || typeof o.silinen !== 'object') o.silinen = {};
+    if (typeof o.guncel !== 'number') o.guncel = 0;
+    return o;
   }
 
   /* ---------- depolama ---------- */
@@ -53,9 +59,16 @@
     }
     return varsayilan();
   }
-  function kaydet() {
+  function kaydet(yerel) {
+    if (!yerel) durum.guncel = Date.now(); // yerel=true: buluttan gelen birleşik durum, zamanı bozulmasın
     try { localStorage.setItem(ANAHTAR, JSON.stringify(durum)); depoVar = true; }
     catch (e) { depoVar = false; uyar(); }
+    if (!yerel && window.Sync) window.Sync.degisti();
+  }
+  /* Silinen kaydı diziden çıkarır ve iz bırakır (senkronda geri dirilmesin). */
+  function sil(dizi, kid) {
+    durum[dizi] = durum[dizi].filter(function (x) { return x.id !== kid; });
+    durum.silinen[kid] = Date.now();
   }
   function uyar() {
     var u = document.getElementById('uyari');
@@ -63,9 +76,7 @@
     else if (bozukKayit) { u.hidden = false; u.textContent = 'Önceki kayıt okunamadı, boş başlandı. Eski ham veri tarayıcıda “ales-yds-takip:v1:bozuk” anahtarında duruyor.'; }
     else u.hidden = true;
   }
-  durum = yukle();
-  // Eski/eksik alanlara varsayılan doldur
-  (function () { var v = varsayilan(); Object.keys(v.ayar).forEach(function (k) { if (durum.ayar[k] === undefined) durum.ayar[k] = v.ayar[k]; }); })();
+  durum = tamamla(yukle());
 
   /* ---------- yardımcılar ---------- */
   function h(tag, a) {
@@ -173,10 +184,68 @@
     else document.documentElement.removeAttribute('data-tema');
   }
 
+  /* ---------- Bugün: teşvik katmanı ---------- */
+  var PLAN_SEKME = { kelime: '#kelime', calisma: '#calis', hata: '#hata', deneme: '#deneme' };
+  function kartPlan(bg) {
+    var plan = L.gunlukPlan(durum, bg);
+    var biten = plan.filter(function (p) { return p.bitti; }).length;
+    var tamam = biten === plan.length;
+    var ara = L.araMesaji(durum.calisma, bg);
+    var kart = h('div', { 'class': 'kart plan' },
+      h('div', { 'class': 'satir' }, h('h3', { style: 'margin:0' }, 'Bugünün planı'), h('span', { 'class': 'bosluk' }), h('span', { 'class': 'soluk' }, biten + ' / ' + plan.length)),
+      h('div', { 'class': 'cubuk', style: 'margin:.5rem 0', role: 'progressbar', 'aria-valuenow': biten, 'aria-valuemin': 0, 'aria-valuemax': plan.length, 'aria-label': 'Günün planı' },
+        h('i', { style: 'width:' + (plan.length ? biten / plan.length * 100 : 0) + '%' })));
+    if (ara && !tamam && !biten) kart.appendChild(h('p', { 'class': 'soluk' }, ara.gun + ' gündür ara var, sorun değil. Bugün tek bir maddeyle başla; ilki yeter.'));
+    plan.forEach(function (p) {
+      kart.appendChild(h('a', { href: PLAN_SEKME[p.anahtar], 'class': 'plan-satir' + (p.bitti ? ' bitti' : '') },
+        h('span', { 'class': 'tik', 'aria-hidden': 'true' }, p.bitti ? '✓' : ''),
+        h('span', { 'class': 'ad' }, h('strong', {}, p.baslik), h('span', { 'class': 'soluk' }, ' · ' + p.ayrinti)),
+        h('span', { 'class': 'sr-only' }, p.bitti ? 'tamamlandı' : 'yapılacak')));
+    });
+    if (tamam) kart.appendChild(h('p', { 'class': 'tamam' }, 'Bugünlük tamam. Dinlen; yarın aynı yerden devam.'));
+    return kart;
+  }
+  function kartBasvuru(bg) {
+    var liste = L.basvuruDurumu(durum.ayar.tarihler, bg);
+    if (!liste.length) return null;
+    return h('div', { 'class': 'kart', style: 'border-color:var(--uyari)' },
+      h('h3', {}, 'Başvuru takvimi'),
+      liste.slice(0, 3).map(function (b) {
+        return h('p', { style: 'margin:.25rem 0' }, h('strong', {}, b.ad), b.durum === 'acik'
+          ? ' başvurusu açık: son gün ' + tarihTR(b.kapanis) + ' (' + (b.gun === 0 ? 'bugün' : b.gun + ' gün kaldı') + ')'
+          : ' başvurusu ' + b.gun + ' gün sonra açılıyor (' + tarihTR(b.acilis) + ' – ' + tarihTR(b.kapanis) + ')');
+      }),
+      h('p', { 'class': 'soluk' }, 'Başvuruyu kaçırırsan sınava giremezsin. Tarihler taslak; ais.osym.gov.tr’den doğrula.'));
+  }
+  function kartYol(bg) {
+    var parcalar = ['yds', 'ales-sayisal'].map(function (k) { return L.hedefYolu(durum, bg, k); }).filter(Boolean);
+    if (!parcalar.length) return null;
+    return h('div', { 'class': 'kart' }, h('h3', {}, 'Hedefe yol'), parcalar.map(function (y) {
+      var birim = y.sinav === 'YDS' ? 'puan' : 'net';
+      return h('p', { style: 'margin:.35rem 0' }, h('strong', {}, y.sinav + ' '), 'şu an ' + y.son + ', hedef ' + y.hedef + ' ' + birim + '. ',
+        y.tamam ? 'Hedefe ulaştın; seviyeyi koru.'
+          : y.sinavAd + '’e ' + y.hafta + ' hafta var: haftada ≈ ' + y.haftalik + ' ' + birim + ' artış yeter.');
+    }));
+  }
+  function kartOzet(bg) {
+    var o = L.haftalikOzet(durum, bg);
+    if (!o.bu && !o.once) return null;
+    var fark = o.bu - o.once;
+    return h('div', { 'class': 'kart' }, h('h3', {}, 'Haftanın özeti'),
+      h('p', { style: 'margin:.25rem 0' }, o.gunSay + ' gün çalıştın, toplam ' + saatDk(o.bu) + '.',
+        o.once ? (fark >= 0 ? ' Geçen haftadan ' + saatDk(fark) + ' fazla.' : ' Geçen hafta ' + saatDk(o.once) + ' idi; bu hafta ' + saatDk(-fark) + ' geride, hafta bitmedi.') : ''),
+      o.enNeden && o.enNedenSay >= 2 ? h('p', { 'class': 'soluk' }, 'Son iki haftada en sık hata nedenin “' + o.enNeden + '” (' + o.enNedenSay + '). Bir sonraki denemede buna dikkat et.') : null);
+  }
+
   /* ---------- Bugün ---------- */
   function ekranBugun() {
     var bg = bugun(), kok = h('div');
     kok.appendChild(h('h2', {}, 'Bugün'));
+    var bas = kartBasvuru(bg); if (bas) kok.appendChild(bas);
+    kok.appendChild(kartPlan(bg));
+    var yol = kartYol(bg); if (yol) kok.appendChild(h('div', { style: 'margin-top:1rem' }, yol));
+    var oz = kartOzet(bg); if (oz) kok.appendChild(h('div', { style: 'margin-top:1rem' }, oz));
+    kok.appendChild(h('div', { style: 'margin-top:1rem' }));
 
     // Sınav geri sayımı
     var tarihler = durum.ayar.tarihler.slice().sort(function (a, b) { return a.tarih < b.tarih ? -1 : 1; });
@@ -315,7 +384,7 @@
           h('td', {}, c.konu || '', c.not ? h('div', { 'class': 'soluk' }, c.not) : null), h('td', { 'class': 'sayi' }, saatDk(c.dk)),
           h('td', {}, h('button', { 'class': 'kucuk tehlike', type: 'button', 'aria-label': 'Kaydı sil', onclick: function () {
             if (!onayla('Bu çalışma kaydı silinsin mi?')) return;
-            durum.calisma = durum.calisma.filter(function (x) { return x.id !== c.id; }); kaydet(); yenile();
+            sil('calisma', c.id); kaydet(); yenile();
           } }, 'Sil')));
       })))));
     kok.appendChild(kart);
@@ -323,6 +392,42 @@
   }
 
   /* ---------- Deneme ---------- */
+  var ALES_TUR = { 'ales-sayisal': 'sayisal', 'ales-sozel': 'sozel' };
+  /* ALES neti -> tahmini puan aralığı. Yalnızca Emre'nin girdiği GERÇEK sonuçlardan hesaplanır. */
+  function tahminAraligi(sinavKey, net) {
+    var tur = ALES_TUR[sinavKey]; if (!tur) return null;
+    var t = L.alesTahmin(durum.alesSonuc, tur, net);
+    return t ? { metin: '≈ ' + t.alt + '–' + t.ust + ' puan', t: t } : null;
+  }
+  function kartAlesSonuc() {
+    var tur = h('select', {}, secenekler({ sayisal: 'ALES Sayısal', sozel: 'ALES Sözel' }, 'sayisal'));
+    var tarih = h('input', { type: 'date', value: bugun(), max: bugun(), required: true });
+    var net = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'ör. 36,5', required: true });
+    var puan = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'ör. 71,2', required: true });
+    var hata = h('p', { 'class': 'hata-metni', role: 'alert' });
+    var kart = h('div', { 'class': 'kart' }, h('h3', {}, 'Gerçek ALES sonuçların'),
+      h('p', { 'class': 'soluk' }, 'ÖSYM katsayı yayımlamıyor; puan her oturumun ortalamasına bağlı. Bu yüzden net → puan tahmini yalnız senin gerçek sonuçlarından kurulur: ne kadar çok girersen aralık o kadar daralır. Net = o bölümün (sayısal ya da sözel) neti.'),
+      h('form', { novalidate: true, onsubmit: function (e) {
+        e.preventDefault();
+        var n = sayi(net.value), p = sayi(puan.value);
+        if (!(n >= 0 && n <= 50)) { hata.textContent = 'Net 0–50 arasında olmalı.'; return; }
+        if (!(p > 0 && p <= 100)) { hata.textContent = 'Puan 0–100 arasında olmalı.'; return; }
+        if (!tarih.value) { hata.textContent = 'Tarih seç.'; return; }
+        durum.alesSonuc.push({ id: id(), tur: tur.value, tarih: tarih.value, net: n, puan: p, guncel: Date.now() });
+        kaydet(); yenile();
+      } }, h('div', { 'class': 'form' }, alan('Bölüm', tur), alan('Tarih', tarih), alan('Net', net), alan('Puan', puan),
+        h('div', {}, h('button', { type: 'submit' }, 'Sonuç ekle'))), hata));
+    durum.alesSonuc.slice().sort(function (a, b) { return a.tarih < b.tarih ? 1 : -1; }).forEach(function (s) {
+      kart.appendChild(h('div', { 'class': 'konu' }, h('span', { 'class': 'ad' }, tarihTR(s.tarih) + ' · ' + (s.tur === 'sayisal' ? 'Sayısal' : 'Sözel') + ' · ' + s.net + ' net → ' + s.puan + ' puan'),
+        h('button', { 'class': 'kucuk tehlike', type: 'button', 'aria-label': 'Sonucu sil', onclick: function () {
+          if (!onayla('Bu ALES sonucu silinsin mi?')) return;
+          sil('alesSonuc', s.id); kaydet(); yenile();
+        } }, 'Sil')));
+    });
+    var hp = durum.ayar.alesHedefPuan, gn = L.alesHedefNet(durum.alesSonuc, 'sayisal', hp);
+    if (gn != null) kart.appendChild(h('p', {}, h('strong', {}, hp + ' puan'), ' için ALES Sayısal’da yaklaşık ', h('strong', {}, String(gn) + ' net'), ' gerekir (tahmin).'));
+    return kart;
+  }
   var denemeGrafikSinav = 'yds';
   function ekranDeneme() {
     var kok = h('div'); kok.appendChild(h('h2', {}, 'Denemeler'));
@@ -352,6 +457,7 @@
         h('div', {}, h('button', { 'class': 'ana', type: 'submit' }, 'Kaydet'))), hata,
       h('p', { 'class': 'soluk' }, 'YDS: puan = doğru × 1,25 (80 soruda), yanlış doğruyu götürmez. ALES: 4 yanlış 1 doğruyu götürür, net = doğru − yanlış/4. Bölüm denemesinde soru sayısını değiştir.'));
     kok.appendChild(form);
+    kok.appendChild(kartAlesSonuc());
 
     // Grafik
     var secici = h('div', { 'class': 'sekme-sec', role: 'group', 'aria-label': 'Grafik sınavı' }, Object.keys(SINAVLAR).map(function (k) {
@@ -377,10 +483,10 @@
         var yd = d.sinav === 'yds', v = L.denemeDeger(d);
         return h('tr', {}, h('td', {}, tarihTR(d.tarih)), h('td', {}, h('span', { 'class': 'rozet ' + SINAVLAR[d.sinav].sinif }, SINAVLAR[d.sinav].kisa), d.not ? h('div', { 'class': 'soluk' }, d.not) : null),
           h('td', { 'class': 'sayi' }, d.dogru + (yd ? '' : '/' + d.yanlis) + '/' + d.soru),
-          h('td', { 'class': 'sayi' }, yd ? v + ' (' + L.ydsHarf(v) + ')' : v + ' net'),
+          h('td', { 'class': 'sayi' }, yd ? v + ' (' + L.ydsHarf(v) + ')' : v + ' net', (function () { var t = yd ? null : tahminAraligi(d.sinav, v); return t ? h('div', { 'class': 'tahmin' }, t.metin) : null; })()),
           h('td', {}, h('button', { 'class': 'kucuk tehlike', type: 'button', 'aria-label': 'Denemeyi sil', onclick: function () {
             if (!onayla('Bu deneme silinsin mi?')) return;
-            durum.deneme = durum.deneme.filter(function (x) { return x.id !== d.id; }); kaydet(); yenile();
+            sil('deneme', d.id); kaydet(); yenile();
           } }, 'Sil')));
       })))));
     kok.appendChild(kart);
@@ -427,10 +533,10 @@
         h('div', { 'class': 'ad' }, h('strong', {}, x.konu), ' ', h('span', { 'class': 'rozet ' + x.sinav }, x.sinav === 'ales' ? 'ALES' : 'YDS'), ' ', h('span', { 'class': 'rozet' }, x.neden),
           h('div', { 'class': 'soluk' }, tarihTR(x.tarih)), x.not ? h('div', {}, x.not) : null),
         h('div', { 'class': 'satir' },
-          h('button', { 'class': 'kucuk' + (x.cozuldu ? ' d2' : ''), type: 'button', 'aria-pressed': x.cozuldu ? 'true' : 'false', onclick: function () { x.cozuldu = !x.cozuldu; kaydet(); yenile(); } }, x.cozuldu ? 'Çözüldü' : 'Çözüldü yap'),
+          h('button', { 'class': 'kucuk' + (x.cozuldu ? ' d2' : ''), type: 'button', 'aria-pressed': x.cozuldu ? 'true' : 'false', onclick: function () { x.cozuldu = !x.cozuldu; x.cozulduTarih = x.cozuldu ? bugun() : null; x.guncel = Date.now(); kaydet(); yenile(); } }, x.cozuldu ? 'Çözüldü' : 'Çözüldü yap'),
           h('button', { 'class': 'kucuk tehlike', type: 'button', 'aria-label': 'Kaydı sil', onclick: function () {
             if (!onayla('Bu hata kaydı silinsin mi?')) return;
-            durum.hata = durum.hata.filter(function (y) { return y.id !== x.id; }); kaydet(); yenile();
+            sil('hata', x.id); kaydet(); yenile();
           } }, 'Sil'))));
     });
     kok.appendChild(kart);
@@ -506,7 +612,7 @@
         h('div', { 'class': 'kaydir' }, h('table', {}, h('tbody', {}, liste.map(function (k) {
           return h('tr', {}, h('td', {}, k.en), h('td', {}, k.tr), h('td', { 'class': 'soluk' }, 'K' + (k.kutu + 1)),
             h('td', {}, h('button', { 'class': 'kucuk tehlike', type: 'button', 'aria-label': k.en + ' kelimesini sil', onclick: function () {
-              durum.kelime = durum.kelime.filter(function (x) { return x.id !== k.id; }); kartOturum.kuyruk = null; kaydet(); yenile();
+              sil('kelime', k.id); kartOturum.kuyruk = null; kaydet(); yenile();
             } }, 'Sil')));
         }))))));
     }
@@ -533,31 +639,53 @@
     return kok;
   }
 
+  /* ---------- Senkron kartı ---------- */
+  function syncKart() {
+    var S = window.Sync, kart = h('div', { 'class': 'kart', id: 'sync-kart' });
+    kart.appendChild(h('h3', {}, 'Cihazlar arası senkron'));
+    if (!S || !S.kullanilabilir) {
+      kart.appendChild(h('p', { 'class': 'soluk' }, 'Kapalı: bu kurulumda Firebase ayarı yok. Telefon ve bilgisayarı Google ile eşlemek için README’deki “Google senkronu” adımlarını yap; o zamana kadar Yedek bölümünü kullan.'));
+      return kart;
+    }
+    var d = S.durum();
+    var metin = { 'giris-yok': 'Giriş yapılmadı. Veri yalnız bu cihazda.', esitleniyor: 'Eşitleniyor…', tamam: 'Eşitlendi' + (d.zaman ? ' · ' + d.zaman.toTimeString().slice(0, 5) : ''), hata: d.ileti }[d.kod] || '';
+    kart.appendChild(h('p', { role: 'status', 'class': d.kod === 'hata' ? 'hata-metni' : 'soluk' }, metin));
+    if (d.eposta) kart.appendChild(h('p', { 'class': 'soluk' }, 'Hesap: ' + d.eposta));
+    kart.appendChild(h('div', { 'class': 'satir' },
+      d.eposta
+        ? [h('button', { type: 'button', onclick: function () { S.simdi(); } }, 'Şimdi eşitle'), h('button', { type: 'button', onclick: function () { S.cikis(); } }, 'Çıkış yap')]
+        : h('button', { 'class': 'ana', type: 'button', onclick: function () { S.giris(); } }, 'Google ile giriş yap')));
+    kart.appendChild(h('p', { 'class': 'soluk' }, 'Giriş yalnız eşitleme içindir; başka hesap ya da şifre yok. İki cihazda da aynı Google hesabıyla gir, veriler birleşir.'));
+    return kart;
+  }
+
   /* ---------- Ayarlar ---------- */
   function ekranAyar() {
     var kok = h('div'); kok.appendChild(h('h2', {}, 'Ayarlar'));
     var a = durum.ayar;
     var yds = h('input', { type: 'number', min: '1', max: '100', step: '1', value: a.ydsHedef });
     var ales = h('input', { type: 'number', min: '1', max: '50', step: '1', value: a.alesHedefNet });
+    var alesP = h('input', { type: 'number', min: '1', max: '100', step: '1', value: a.alesHedefPuan });
     var saat = h('input', { type: 'number', min: '1', max: '80', step: '0.5', value: a.haftalikSaat });
     var temaSec = h('select', {}, secenekler({ oto: 'Cihaza göre', acik: 'Açık', koyu: 'Koyu' }, a.tema));
     var hata = h('p', { 'class': 'hata-metni', role: 'alert' });
     kok.appendChild(h('form', { 'class': 'kart', novalidate: true, onsubmit: function (e) {
       e.preventDefault();
-      var y = sayi(yds.value), n = sayi(ales.value), s = sayi(saat.value);
-      if (!(y >= 1 && y <= 100) || !(n >= 1 && n <= 50) || !(s >= 1 && s <= 80)) { hata.textContent = 'Değerler aralık dışı: YDS 1–100, ALES net 1–50, saat 1–80.'; return; }
-      a.ydsHedef = y; a.alesHedefNet = n; a.haftalikSaat = s; a.tema = temaSec.value;
+      var y = sayi(yds.value), n = sayi(ales.value), s = sayi(saat.value), ap = sayi(alesP.value);
+      if (!(y >= 1 && y <= 100) || !(n >= 1 && n <= 50) || !(s >= 1 && s <= 80) || !(ap >= 1 && ap <= 100)) { hata.textContent = 'Değerler aralık dışı: YDS 1–100, ALES net 1–50, ALES puan 1–100, saat 1–80.'; return; }
+      a.ydsHedef = y; a.alesHedefNet = n; a.alesHedefPuan = ap; a.haftalikSaat = s; a.tema = temaSec.value;
       kaydet(); yenile();
     } }, h('h3', {}, 'Hedefler'),
-      h('div', { 'class': 'form' }, alan('YDS hedef puan', yds), alan('ALES Sayısal hedef net', ales), alan('Haftalık çalışma (saat)', saat), alan('Tema', temaSec),
+      h('div', { 'class': 'form' }, alan('YDS hedef puan', yds), alan('ALES Sayısal hedef net', ales), alan('ALES hedef puan', alesP), alan('Haftalık çalışma (saat)', saat), alan('Tema', temaSec),
         h('div', {}, h('button', { 'class': 'ana', type: 'submit' }, 'Kaydet'))), hata,
-      h('p', { 'class': 'soluk' }, 'ALES hedefi ÖSYM puanı değil net olarak izlenir; hedef netini kendi hedef puanına göre sen belirle.')));
+      h('p', { 'class': 'soluk' }, 'ALES çalışması net üzerinden izlenir. Hedef puan, gerçek ALES sonuçlarını girince “şu puan için şu net” tahminine çevrilir (Deneme sekmesi).')));
 
     // Tarihler
     var tk = h('div', { 'class': 'kart' }, h('h3', {}, 'Sınav tarihleri'),
       h('p', { 'class': 'soluk' }, 'Varsayılanlar ikincil kaynaklardan alındı ve taslaktır. osym.gov.tr’den doğrulayınca kutuyu işaretle; ÖSYM tarih değiştirebilir.'));
     a.tarihler.slice().sort(function (x, y) { return x.tarih < y.tarih ? -1 : 1; }).forEach(function (t) {
-      tk.appendChild(h('div', { 'class': 'konu' }, h('span', { 'class': 'ad' }, h('strong', {}, t.ad), ' ', tarihTR(t.tarih)),
+      tk.appendChild(h('div', { 'class': 'konu' }, h('span', { 'class': 'ad' }, h('strong', {}, t.ad), ' ', tarihTR(t.tarih),
+          t.basvuru ? h('div', { 'class': 'soluk' }, 'Başvuru ' + tarihTR(t.basvuru[0]) + ' – ' + tarihTR(t.basvuru[1]) + (t.sonuc ? ' · sonuç ' + tarihTR(t.sonuc) : '')) : null),
         h('label', { style: 'display:flex;gap:.4rem;align-items:center;margin:0', title: 'ÖSYM’den doğruladım' }, h('input', { type: 'checkbox', checked: !!t.dogrulandi, onchange: function (e) { t.dogrulandi = e.target.checked; kaydet(); } }), 'doğrulandı'),
         h('button', { 'class': 'kucuk tehlike', type: 'button', 'aria-label': t.ad + ' tarihini sil', onclick: function () { a.tarihler = a.tarihler.filter(function (x) { return x.id !== t.id; }); kaydet(); yenile(); } }, 'Sil')));
     });
@@ -571,6 +699,8 @@
     } }, h('div', { 'class': 'form', style: 'margin-top:.75rem' }, alan('Ad', tAd), alan('Tarih', tTar), h('div', {}, h('button', { type: 'submit' }, 'Tarih ekle'))), tHata));
     kok.appendChild(tk);
 
+    kok.appendChild(syncKart());
+
     // Yedek
     var yukleDosya = h('input', { type: 'file', accept: 'application/json,.json', hidden: true });
     var yHata = h('p', { 'class': 'hata-metni', role: 'alert' });
@@ -581,7 +711,7 @@
         var o = null; try { o = L.durumDogrula(JSON.parse(r.result)); } catch (e) { }
         if (!o) { yHata.textContent = 'Dosya geçerli bir yedek değil; hiçbir şey değişmedi.'; return; }
         if (!onayla('Mevcut tüm veri bu yedekle değiştirilsin mi?')) return;
-        durum = o; kartOturum.kuyruk = null; kaydet(); ciz();
+        durum = tamamla(o); kartOturum.kuyruk = null; kaydet(); ciz();
       };
       r.readAsText(f);
     });
@@ -601,7 +731,11 @@
       h('p', { 'class': 'soluk' }, 'Tüm çalışma, deneme, hata, kelime ve konu kayıtlarını siler. Geri alınamaz; önce yedek al.'),
       h('button', { 'class': 'tehlike', type: 'button', onclick: function () {
         if (!onayla('Tüm veri silinsin mi? Bu işlem geri alınamaz.')) return;
-        durum = varsayilan(); kartOturum.kuyruk = null; kaydet(); location.hash = '#bugun'; ciz();
+        // Sıfırlama bulutta da geçerli olsun: tüm kayıtlar silinmiş sayılır (yoksa senkron hepsini geri getirir).
+        var eski = durum, v = varsayilan(), simdi = Date.now();
+        ['calisma', 'deneme', 'hata', 'kelime', 'alesSonuc'].forEach(function (dz) { eski[dz].forEach(function (x) { v.silinen[x.id] = simdi; }); });
+        Object.keys(eski.silinen).forEach(function (k) { v.silinen[k] = eski.silinen[k]; });
+        durum = v; kartOturum.kuyruk = null; kaydet(); location.hash = '#bugun'; ciz();
       } }, 'Tüm veriyi sil')));
     return kok;
   }
@@ -610,4 +744,19 @@
   window.addEventListener('hashchange', function () { ciz(); window.scrollTo(0, 0); document.getElementById('ana').focus({ preventScroll: true }); });
   window.__takip = { durum: function () { return durum; } }; // salt okunur kanca: ui-smoke testi
   ciz();
+  if (window.Sync) window.Sync.baslat({
+    al: function () { return durum; },
+    tamamla: tamamla,
+    // Buluttan birleşik durum geldi: yerel kaydı güncelle. Kullanıcı bir forma yazıyorsa ekranı yenileme.
+    ata: function (d) {
+      durum = tamamla(d); kartOturum.kuyruk = null; kaydet(true);
+      var a = document.activeElement;
+      if (!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) yenile();
+    },
+    // Yalnız Ayarlar'daki durum kartını yerinde tazele (formlardaki yazıyı bozma).
+    durumDegisti: function () {
+      var k = document.getElementById('sync-kart');
+      if (k) k.replaceWith(syncKart());
+    }
+  });
 })();

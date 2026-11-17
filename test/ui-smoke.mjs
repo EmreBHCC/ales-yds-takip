@@ -162,6 +162,29 @@ try {
     kontrol('390px yatay taşma yok: ' + s, await kos(`return document.documentElement.scrollWidth<=window.innerWidth+1`), await kos(`return [document.documentElement.scrollWidth,window.innerWidth]`));
   }
 
+  // ---- v2: günün planı, ALES tahmini, silme izi, eski veri göçü, senkron kartı ----
+  // Eski biçimde (v1, 3 tarih, başvuru yok, alesSonuc/silinen yok) kayıtla açılış
+  await kos(`localStorage.setItem('ales-yds-takip:v1', JSON.stringify({v:1,ayar:{ydsHedef:80,alesHedefNet:40,haftalikSaat:5,tema:'oto',sonYedek:null,tarihler:[{id:'d1',ad:'YÖKDİL/1',tarih:'2027-02-28',dogrulandi:true}]},calisma:[],deneme:[],hata:[],kelime:[],konu:{}}));`);
+  await git('#bugun'); await yenileSayfa();
+  kontrol('Eski veri göçü: 7 sınav, doğrulandı işareti korunur, ALES tahmini alanı var', await kos(`const s=__takip.durum(); return s.ayar.tarihler.length===7 && s.ayar.tarihler.find(t=>t.ad==='YÖKDİL/1').dogrulandi===true && Array.isArray(s.alesSonuc) && s.ayar.alesHedefPuan===70`));
+  kontrol('Bugün: günün planı kartı ve en az 2 madde', await kos(`return !!q('.kart.plan') && qa('.plan-satir').length>=2 && q('.kart.plan').textContent.includes('Bugünün planı')`));
+  await git('#calis');
+  await kos(`yaz('Süre (dk)','120'); gonder('Kaydet');`);
+  await git('#bugun');
+  kontrol('Planda çalışma payı tamamlanınca işaretlenir', await kos(`return qa('.plan-satir.bitti').length>=1`));
+  await git('#deneme');
+  kontrol('ALES sonuç yokken tahmin gösterilmez', await kos(`return !q('main').textContent.includes('≈')`));
+  await kos(`yaz('Sınav','ales-sayisal'); yaz('Doğru','40'); yaz('Yanlış','8'); gonder('Kaydet');`);
+  await kos(`yaz('Net','35'); yaz('Puan','70'); const b=qa('button').find(x=>x.textContent.trim()==='Sonuç ekle'); b.closest('form').requestSubmit();`);
+  kontrol('Gerçek ALES sonucu kaydedilir', await kos(`const s=__takip.durum().alesSonuc; return s.length===1 && s[0].net===35 && s[0].puan===70`));
+  kontrol('Sonuç girilince deneme netine puan aralığı yazılır (≈ a–b puan)', await kos(`return /≈ [0-9.]+–[0-9.]+ puan/.test(q('main').textContent)`));
+  kontrol('Geçersiz ALES puanı reddedilir', await (async () => { await kos(`yaz('Net','35'); yaz('Puan','150'); const b=qa('button').find(x=>x.textContent.trim()==='Sonuç ekle'); b.closest('form').requestSubmit();`); return kos(`return __takip.durum().alesSonuc.length===1 && q('main').textContent.includes('Puan 0–100')`); })());
+  await git('#calis');
+  await kos(`tikla('Sil');`);
+  kontrol('Silinen kayıt iz bırakır (senkronda geri gelmesin)', await kos(`const s=__takip.durum(); return s.calisma.length===0 && Object.keys(s.silinen).length===1`));
+  await git('#ayar');
+  kontrol('Ayarlar: başvuru penceresi ve senkron kartı (yapılandırma yok → kapalı)', await kos(`const t=q('main').textContent; return t.includes('Başvuru 3 Şub 2027') && !!q('#sync-kart') && q('#sync-kart').textContent.includes('Kapalı')`));
+
   // Ekran görüntüleri (isteğe bağlı): örnek veriyle
   if (cikti) {
     await kos(`

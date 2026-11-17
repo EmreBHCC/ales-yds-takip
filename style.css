@@ -135,6 +135,17 @@ details { margin-top: .5rem; }
 summary { cursor: pointer; font-weight: 600; min-height: 32px; }
 .bos { padding: 1.25rem; text-align: center; color: var(--soluk); border: 1px dashed var(--cizgi); border-radius: 12px; }
 
+.plan-satir { display: flex; align-items: center; gap: .75rem; padding: .6rem .25rem; min-height: 48px; border-top: 1px solid var(--cizgi); color: var(--metin); text-decoration: none; }
+.plan-satir:hover .ad strong { text-decoration: underline; }
+.plan-satir .ad { flex: 1; }
+.plan-satir .tik { flex: none; width: 24px; height: 24px; border: 2px solid var(--cizgi); border-radius: 50%; display: grid; place-items: center; font-size: .85rem; font-weight: 700; }
+.plan-satir.bitti .tik { background: var(--ana); border-color: var(--ana); color: var(--ana-ust); }
+.plan-satir.bitti .ad { color: var(--soluk); }
+.plan-satir.bitti .ad strong { text-decoration: line-through; font-weight: 500; }
+.tamam { margin: .75rem 0 0; color: var(--iyi); font-weight: 600; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.tahmin { color: var(--soluk); font-size: .85rem; }
+
 @media (prefers-reduced-motion: no-preference) {
   .cubuk > i, .hafta i { transition: width .3s ease, height .3s ease; }
 }
